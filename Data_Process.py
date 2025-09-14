@@ -33,10 +33,18 @@ if not os.path.exists(PRELIMINARY_METADATA_CSV):
             if file.endswith('.dcm'):
                 dcm_path = os.path.join(root, file)
                 try:
-                    # 解析路径获取ID
-                    parts = dcm_path.split(os.sep)
-                    subject_id = int(parts[-3].replace('p', ''))
-                    study_id = int(parts[-2].replace('s', ''))
+                    # 解析路径获取ID - 修正路径分隔符问题
+                    normalized_path = os.path.normpath(dcm_path)
+                    parts = normalized_path.split(os.sep)
+                    # 从路径中提取包含p和s的部分
+                    subject_part = parts[-3]  # 应该是 pXXXXXXX
+                    study_part = parts[-2]    # 应该是 sXXXXXXX
+                    
+                    if not subject_part.startswith('p') or not study_part.startswith('s'):
+                        raise ValueError(f"路径格式不正确: {dcm_path}")
+                        
+                    subject_id = int(subject_part.replace('p', ''))
+                    study_id = int(study_part.replace('s', ''))
                     dicom_id = file.replace('.dcm', '')
 
                     # 读取DCM文件头获取视角
@@ -51,8 +59,7 @@ if not os.path.exists(PRELIMINARY_METADATA_CSV):
                         'image_path': dcm_path # 暂时保存完整路径
                     })
                 except Exception as e:
-                    # print(f"Could not process {dcm_path}: {e}")
-                    pass # 跳过无法处理的文件
+                    print(f"Could not process {dcm_path}: {e}") # 输出详细异常信息，便于调试
 
     df_meta = pd.DataFrame(image_data)
     df_meta.to_csv(PRELIMINARY_METADATA_CSV, index=False)
@@ -75,8 +82,9 @@ if not os.path.exists(LABELED_REPORTS_CSV):
     for index, row in tqdm(studies_to_process.iterrows(), total=len(studies_to_process), desc="Reading .txt reports"):
         subject_id = str(int(row['subject_id']))
         study_id = str(int(row['study_id']))
-        p_group = 'p' + subject_id[:2]
-        report_path = os.path.join(FILES_DIR, p_group, f'p{subject_id}', f's{study_id}.txt')
+        
+        # 正确的路径构建：E:/data_subset1/p10000032/s50414267.txt
+        report_path = os.path.join(FILES_DIR, f'p{subject_id}', f's{study_id}.txt')
         
         try:
             with open(report_path, 'r', encoding='utf-8') as f:
@@ -86,6 +94,13 @@ if not os.path.exists(LABELED_REPORTS_CSV):
             pass
 
     df_reports = pd.DataFrame(report_data)
+    print(f"成功读取 {len(df_reports)} 个报告文件")
+    print(f"df_reports 的列: {df_reports.columns.tolist()}")
+    
+    if len(df_reports) == 0:
+        print("错误：没有找到任何报告文件！请检查路径和文件结构。")
+        exit()
+        
     df_reports.to_csv(REPORTS_WITH_IDS_TEMP_CSV, index=False)
     df_reports[['report_text']].to_csv(REPORTS_TO_LABEL_CSV, index=False, header=False)
 
