@@ -1,0 +1,15 @@
+Label,Positive,Negative,Uncertain,Unmentioned,Positive_Rate_%,Mentioned_Total
+No Finding,0,0,0,22,0.0,0
+Enlarged Cardiomediastinum,0,0,0,926,0.0,0
+Cardiomegaly,0,0,0,763,0.0,0
+Lung Lesion,0,0,0,918,0.0,0
+Lung Opacity,0,0,0,673,0.0,0
+Edema,0,0,0,614,0.0,0
+Consolidation,0,0,0,604,0.0,0
+Pneumonia,0,0,0,642,0.0,0
+Atelectasis,0,0,0,601,0.0,0
+Pneumothorax,0,0,0,342,0.0,0
+Pleural Effusion,0,0,0,328,0.0,0
+Pleural Other,0,0,0,912,0.0,0
+Fracture,0,0,0,890,0.0,0
+Support Devices,0,0,0,713,0.0,0
