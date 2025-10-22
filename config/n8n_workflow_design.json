@@ -1,0 +1,133 @@
+{
+  "name": "CheXpert混合标注工作流 (NLP + DenseNet-121)",
+  "description": "结合文本NLP分析和深度学习图像分析的多模态标注系统",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "数据输入触发器",
+      "type": "Manual Trigger",
+      "description": "手动上传CSV文件（包含报告）和图像文件夹"
+    },
+    {
+      "id": "read_csv",
+      "name": "读取报告CSV",
+      "type": "Read CSV",
+      "description": "读取包含subject_id, study_id, Report Impression的CSV文件"
+    },
+    {
+      "id": "validate_data",
+      "name": "数据验证",
+      "type": "Code",
+      "description": "验证数据完整性和格式",
+      "code": "// 验证必需字段\nconst required = ['subject_id', 'study_id', 'Report Impression'];\nfor (let field of required) {\n  if (!items[0].json.hasOwnProperty(field)) {\n    throw new Error(`缺少必需字段: ${field}`);\n  }\n}\nreturn items;"
+    },
+    {
+      "id": "nlp_labeling", 
+      "name": "NLP文本标注",
+      "type": "Code",
+      "description": "使用改进的CheXpert NLP规则进行文本标注",
+      "code": "// CheXpert NLP标注逻辑\nconst labels = ['No Finding', 'Enlarged Cardiomediastinum', 'Cardiomegaly', 'Lung Lesion', 'Lung Opacity', 'Edema', 'Consolidation', 'Pneumonia', 'Atelectasis', 'Pneumothorax', 'Pleural Effusion', 'Pleural Other', 'Fracture', 'Support Devices'];\n\n// 简化的模式匹配\nconst patterns = {\n  'Pneumonia': {\n    positive: [/pneumonia/i, /pneumonic\\s+infiltrate/i],\n    negative: [/no\\s+pneumonia/i, /without\\s+pneumonia/i]\n  },\n  'Edema': {\n    positive: [/edema/i, /pulmonary\\s+edema/i],\n    negative: [/no\\s+edema/i, /without\\s+edema/i]\n  },\n  'Cardiomegaly': {\n    positive: [/cardiomegaly/i, /enlarged\\s+heart/i],\n    negative: [/no\\s+cardiomegaly/i, /normal\\s+heart\\s+size/i]\n  }\n};\n\nfunction labelText(text) {\n  const result = {};\n  labels.forEach(label => {\n    if (patterns[label]) {\n      const hasPositive = patterns[label].positive.some(p => p.test(text));\n      const hasNegative = patterns[label].negative.some(p => p.test(text));\n      result[label + '_nlp'] = hasNegative ? 0 : (hasPositive ? 1 : 0);\n    } else {\n      result[label + '_nlp'] = 0;\n    }\n  });\n  return result;\n}\n\nconst processedItems = items.map(item => {\n  const text = item.json['Report Impression'] || '';\n  const nlpResults = labelText(text);\n  return {\n    json: {\n      ...item.json,\n      ...nlpResults,\n      nlp_processed: true\n    }\n  };\n});\n\nreturn processedItems;"
+    },
+    {
+      "id": "prepare_images",
+      "name": "准备图像数据",
+      "type": "Code", 
+      "description": "检查对应的医学图像文件是否存在",
+      "code": "// 为每个报告查找对应的图像文件\nconst fs = require('fs');\nconst path = require('path');\n\nconst imageDir = '/path/to/chest_xrays'; // 需要配置实际路径\n\nconst itemsWithImages = items.map(item => {\n  const imageName = `${item.json.subject_id}_${item.json.study_id}.jpg`;\n  const imagePath = path.join(imageDir, imageName);\n  \n  let hasImage = false;\n  let imageBase64 = null;\n  \n  try {\n    if (fs.existsSync(imagePath)) {\n      const imageBuffer = fs.readFileSync(imagePath);\n      imageBase64 = imageBuffer.toString('base64');\n      hasImage = true;\n    }\n  } catch (error) {\n    console.log(`图像加载失败: ${imagePath}`);\n  }\n  \n  return {\n    json: {\n      ...item.json,\n      has_image: hasImage,\n      image_path: hasImage ? imagePath : null,\n      image_base64: imageBase64\n    }\n  };\n});\n\nreturn itemsWithImages;"
+    },
+    {
+      "id": "dl_prediction",
+      "name": "DenseNet-121深度学习预测",
+      "type": "HTTP Request",
+      "description": "调用DenseNet-121 API进行图像分析",
+      "method": "POST",
+      "url": "http://localhost:5000/predict/batch",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": "{\n  \"images\": [\n    {% for item in items %}\n    {% if item.json.has_image %}\n    {\n      \"id\": \"{{ item.json.subject_id }}_{{ item.json.study_id }}\",\n      \"image\": \"{{ item.json.image_base64 }}\"\n    }{% if not loop.last %},{% endif %}\n    {% endif %}\n    {% endfor %}\n  ],\n  \"threshold\": 0.5\n}"
+    },
+    {
+      "id": "fusion_engine",
+      "name": "多模态融合引擎", 
+      "type": "Code",
+      "description": "融合NLP和深度学习预测结果",
+      "code": "// 获取深度学习预测结果\nconst dlResults = $node['dl_prediction'].json.results || [];\nconst dlResultsMap = {};\ndlResults.forEach(result => {\n  if (result.success) {\n    dlResultsMap[result.id] = result.predictions;\n  }\n});\n\n// 融合策略\nfunction fuseResults(nlpPred, dlPred, dlProb, label) {\n  // 如果两者一致，使用一致结果\n  if (nlpPred === dlPred) return nlpPred;\n  \n  // 高置信度深度学习优先\n  if (dlProb > 0.8) return dlPred;\n  if (dlProb < 0.2) return 0;\n  \n  // 特定标签策略\n  if (['Pneumonia', 'Edema', 'Cardiomegaly'].includes(label)) {\n    return dlProb > 0.6 ? dlPred : nlpPred;\n  }\n  \n  // 默认：有一个阳性就标为不确定\n  return (nlpPred === 1 || dlPred === 1) ? -1 : 0;\n}\n\nconst labels = ['No Finding', 'Enlarged Cardiomediastinum', 'Cardiomegaly', 'Lung Lesion', 'Lung Opacity', 'Edema', 'Consolidation', 'Pneumonia', 'Atelectasis', 'Pneumothorax', 'Pleural Effusion', 'Pleural Other', 'Fracture', 'Support Devices'];\n\nconst fusedResults = items.map(item => {\n  const studyId = `${item.json.subject_id}_${item.json.study_id}`;\n  const dlResult = dlResultsMap[studyId] || {};\n  \n  const fused = {\n    ...item.json,\n    fusion_method: 'nlp_dl_hybrid'\n  };\n  \n  labels.forEach(label => {\n    const nlpPred = item.json[label + '_nlp'] || 0;\n    const dlPred = dlResult[label] || 0;\n    const dlProb = dlResult[label + '_probability'] || 0.5;\n    \n    fused[label] = fuseResults(nlpPred, dlPred, dlProb, label);\n    fused[label + '_nlp_original'] = nlpPred;\n    fused[label + '_dl_original'] = dlPred;\n    fused[label + '_dl_confidence'] = dlProb;\n  });\n  \n  return { json: fused };\n});\n\nreturn fusedResults;"
+    },
+    {
+      "id": "quality_assessment", 
+      "name": "质量评估",
+      "type": "Code",
+      "description": "评估融合结果的质量和一致性",
+      "code": "const qualityResults = items.map(item => {\n  let positiveCount = 0;\n  let nlpDlAgreement = 0;\n  let totalLabels = 0;\n  \n  const labels = ['No Finding', 'Enlarged Cardiomediastinum', 'Cardiomegaly', 'Lung Lesion', 'Lung Opacity', 'Edema', 'Consolidation', 'Pneumonia', 'Atelectasis', 'Pneumothorax', 'Pleural Effusion', 'Pleural Other', 'Fracture', 'Support Devices'];\n  \n  labels.forEach(label => {\n    const finalPred = item.json[label];\n    const nlpPred = item.json[label + '_nlp_original'];\n    const dlPred = item.json[label + '_dl_original'];\n    \n    if (finalPred === 1) positiveCount++;\n    if (nlpPred === dlPred) nlpDlAgreement++;\n    totalLabels++;\n  });\n  \n  const agreementRate = nlpDlAgreement / totalLabels;\n  const qualityFlag = agreementRate > 0.8 ? 'high' : (agreementRate > 0.6 ? 'medium' : 'low');\n  \n  return {\n    json: {\n      ...item.json,\n      positive_findings_count: positiveCount,\n      nlp_dl_agreement_rate: agreementRate,\n      quality_flag: qualityFlag,\n      has_multimodal_data: item.json.has_image\n    }\n  };\n});\n\nreturn qualityResults;"
+    },
+    {
+      "id": "statistics_generator",
+      "name": "统计分析生成器",
+      "type": "Code", 
+      "description": "生成详细的统计分析报告",
+      "code": "const labels = ['No Finding', 'Enlarged Cardiomediastinum', 'Cardiomegaly', 'Lung Lesion', 'Lung Opacity', 'Edema', 'Consolidation', 'Pneumonia', 'Atelectasis', 'Pneumothorax', 'Pleural Effusion', 'Pleural Other', 'Fracture', 'Support Devices'];\n\nconst stats = {\n  total_reports: items.length,\n  multimodal_reports: items.filter(item => item.json.has_image).length,\n  text_only_reports: items.filter(item => !item.json.has_image).length,\n  average_agreement_rate: items.reduce((sum, item) => sum + (item.json.nlp_dl_agreement_rate || 0), 0) / items.length,\n  quality_distribution: {\n    high: items.filter(item => item.json.quality_flag === 'high').length,\n    medium: items.filter(item => item.json.quality_flag === 'medium').length,\n    low: items.filter(item => item.json.quality_flag === 'low').length\n  },\n  label_statistics: {}\n};\n\nlabels.forEach(label => {\n  const positive = items.filter(item => item.json[label] === 1).length;\n  const negative = items.filter(item => item.json[label] === 0).length;\n  const uncertain = items.filter(item => item.json[label] === -1).length;\n  \n  // NLP vs DL比较\n  const nlpPositive = items.filter(item => item.json[label + '_nlp_original'] === 1).length;\n  const dlPositive = items.filter(item => item.json[label + '_dl_original'] === 1).length;\n  \n  stats.label_statistics[label] = {\n    final: { positive, negative, uncertain },\n    nlp_only: nlpPositive,\n    dl_only: dlPositive,\n    positive_rate: ((positive / items.length) * 100).toFixed(2) + '%'\n  };\n});\n\nreturn [{ json: stats }];"
+    },
+    {
+      "id": "save_results",
+      "name": "保存融合结果", 
+      "type": "Write CSV",
+      "description": "保存最终的多模态标注结果"
+    },
+    {
+      "id": "save_statistics",
+      "name": "保存统计报告",
+      "type": "Write CSV", 
+      "description": "保存详细的统计分析结果"
+    },
+    {
+      "id": "visualization_api",
+      "name": "生成可视化图表",
+      "type": "HTTP Request",
+      "description": "调用Python可视化服务生成图表",
+      "method": "POST",
+      "url": "http://localhost:5001/api/visualize/multimodal",
+      "body": "{{ $json }}"
+    },
+    {
+      "id": "notification",
+      "name": "完成通知",
+      "type": "Email/Webhook",
+      "description": "发送处理完成通知，包含统计摘要"
+    }
+  ],
+  "connections": [
+    {"from": "trigger", "to": "read_csv"},
+    {"from": "read_csv", "to": "validate_data"},
+    {"from": "validate_data", "to": "nlp_labeling"},
+    {"from": "nlp_labeling", "to": "prepare_images"},
+    {"from": "prepare_images", "to": "dl_prediction"},
+    {"from": "dl_prediction", "to": "fusion_engine"},
+    {"from": "fusion_engine", "to": "quality_assessment"},
+    {"from": "quality_assessment", "to": ["statistics_generator", "save_results"]},
+    {"from": "statistics_generator", "to": "save_statistics"},
+    {"from": "save_statistics", "to": "visualization_api"},
+    {"from": "save_results", "to": "notification"},
+    {"from": "visualization_api", "to": "notification"}
+  ],
+  "settings": {
+    "errorHandling": "continue",
+    "retryAttempts": 3,
+    "timeout": "30m",
+    "parallelProcessing": true
+  },
+  "requirements": {
+    "services": [
+      "DenseNet-121 API (localhost:5000)",
+      "可视化服务 (localhost:5001)"
+    ],
+    "dependencies": [
+      "torch",
+      "torchvision", 
+      "PIL",
+      "flask",
+      "pandas",
+      "matplotlib"
+    ]
+  }
+}
