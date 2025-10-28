@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//e/download/dataset/**)",
+      "Bash(for i in 1 2 3 4 5)",
+      "Bash(do echo \"Patient $i studies:\")",
+      "Bash(xargs -I {} sh -c 'ls -d \"\"\"\"E:\\download\\dataset\\dataset\"\"\"\"/{}/s* 2>/dev/null | wc -l')",
+      "Bash(done)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(python:*)",
+      "Bash(timeout 10 sleep:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(timeout 5 sleep:*)",
+      "Bash(set:*)",
+      "Bash(awk:*)",
+      "Bash(timeout 180 python:*)",
+      "Bash(rm:*)",
+      "Bash(cp:*)",
+      "Bash(tree:*)",
+      "Bash(pdfinfo:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

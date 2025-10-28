@@ -1,0 +1,57 @@
+================================================================================
+MODEL COMPARISON SUMMARY: DenseNet-121 vs ResNet-50
+================================================================================
+
+MODEL SPECIFICATIONS
+--------------------------------------------------------------------------------
+DenseNet-121:
+  - Parameters: ~7M
+  - Architecture: Dense connectivity with feature reuse
+  - Best Validation AUC: 0.6813 (Epoch 4)
+
+ResNet-50:
+  - Parameters: 23,536,718 (~23.5M)
+  - Architecture: Residual learning with skip connections
+  - Best Validation AUC: 0.6792 (Epoch 5)
+
+TEST SET PERFORMANCE
+--------------------------------------------------------------------------------
+Metric               DenseNet-121    ResNet-50       Difference     
+--------------------------------------------------------------------------------
+Mean AUC             0.6100          0.6268          +0.0168        
+Mean Accuracy        0.8060          0.8095          +0.0036        
+Mean Precision       0.3083          0.3145          +0.0061        
+Mean Recall          0.1880          0.2114          +0.0235        
+Mean F1-Score        0.2114          0.2367          +0.0253        
+
+TOP 5 PERFORMING CLASSES (by AUC)
+--------------------------------------------------------------------------------
+DenseNet-121 Top 5:
+  1. Support Devices                AUC: 0.8150
+  2. Pneumothorax                   AUC: 0.7417
+  3. Atelectasis                    AUC: 0.7108
+  4. Cardiomegaly                   AUC: 0.7075
+  5. No Finding                     AUC: 0.6646
+
+ResNet-50 Top 5:
+  1. Support Devices                AUC: 0.8264
+  2. Atelectasis                    AUC: 0.7491
+  3. Pneumothorax                   AUC: 0.7458
+  4. No Finding                     AUC: 0.6954
+  5. Cardiomegaly                   AUC: 0.6877
+
+KEY FINDINGS
+--------------------------------------------------------------------------------
+1. ResNet-50 achieves 0.0168 higher mean AUC than DenseNet-121
+   (0.6268 vs 0.6100)
+
+2. Both models perform best on:
+   - Support Devices (DenseNet: 0.8150, ResNet: 0.8264)
+
+3. ResNet-50 uses 3.4x more parameters but achieves modest performance gain
+
+4. Training efficiency:
+   - DenseNet-121 best epoch: 4/10
+   - ResNet-50 best epoch: 5/10
+
+================================================================================
